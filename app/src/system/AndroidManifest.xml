@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Runs as uid 1000. Installs only when signed with the device platform key
+     (Ryongaksan and Taeyang use the public AOSP test key, SF-19). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sharedUserId="android.uid.system" />
