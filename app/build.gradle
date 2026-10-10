@@ -10,8 +10,8 @@ android {
         minSdk 19
         // 22: no runtime permissions on Taeyang (6.0), so sdcard export works without a prompt.
         targetSdk 22
-        versionCode 2
-        versionName "2.0"
+        versionCode 5
+        versionName "2.3"
     }
     buildFeatures { buildConfig true }
     flavorDimensions 'uid'

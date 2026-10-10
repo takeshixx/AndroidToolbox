@@ -54,6 +54,7 @@ public class MainActivity extends Activity {
     private static final String USB_STATE = "android.hardware.usb.action.USB_STATE";
     private static final String NO_DEBUG = "no_debugging_features";
     private static final String NO_USB_FILES = "no_usb_file_transfer";
+    private static final String NO_CONFIG_WIFI = "no_config_wifi";
 
     private static final String[] PROPS = {
             "ro.product.manufacturer", "ro.product.model", "ro.product.device", "ro.hardware",
@@ -62,6 +63,7 @@ public class MainActivity extends Activity {
             "ro.serialno", "persist.sys.usb.config", "sys.usb.config", "sys.usb.state", "init.svc.adbd",
             "service.adb.tcp.port", "persist.adb.tcp.port", "persist.service.adb.enable",
             "ro.sys.usb.storage.type", "ro.sys.usb.bicr", "ro.sys.usb.charging.only", "sys.usb.vid",
+            "ro.nation.sign",
     };
     private static final String[] PERMS = {
             "android.permission.WRITE_SECURE_SETTINGS", "android.permission.MANAGE_USB",
@@ -123,6 +125,11 @@ public class MainActivity extends Activity {
                 "USB tethering on/off", (Runnable) this::toggleTethering,
                 "USB: mtp,acm", (Runnable) () -> usbFunction("mtp,acm"),
                 "Serial shell (ttyGS0)", (Runnable) () -> new Thread(() -> serialShell("/dev/ttyGS0")).start());
+        section(panel, "Wi-Fi config restriction",
+                "Show restriction state", (Runnable) this::showWifiRestriction,
+                "Dump user state to sdcard", (Runnable) this::dumpUserState,
+                "Set no_config_wifi", (Runnable) () -> setWifiRestriction(true),
+                "Clear no_config_wifi", (Runnable) () -> setWifiRestriction(false));
         section(panel, "Open screen",
                 "Developer options", (Runnable) () -> open(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)),
                 "USB mode", (Runnable) () -> open(component("com.android.settings", "com.android.settings.deviceinfo.UsbModeChooserActivity")),
@@ -203,6 +210,61 @@ public class MainActivity extends Activity {
         SystemClock.sleep(1500);
         log("sys.usb.config=" + prop("sys.usb.config") + " sys.usb.state=" + prop("sys.usb.state")
                 + " init.svc.adbd=" + prop("init.svc.adbd"));
+    }
+
+    // The Wi-Fi settings screen is a RestrictedSettingsFragment keyed on no_config_wifi: when that
+    // restriction is set and no restrictions provider exists, its whole overflow menu is suppressed,
+    // which removes the offline-update trigger. Read and toggle it to observe that directly.
+    // Reads the per-user state files. They are 600 system:system, so uid 1000 can read them while
+    // adb shell (uid 2000) cannot. Written to /sdcard so the output can be pulled intact.
+    private void dumpUserState() {
+        StringBuilder r = new StringBuilder();
+        UserManager um = (UserManager) getSystemService(USER_SERVICE);
+        r.append("getUserRestrictions() = ").append(um.getUserRestrictions()).append("\n");
+        for (String k : new String[]{NO_CONFIG_WIFI, NO_DEBUG, NO_USB_FILES}) {
+            r.append("hasUserRestriction(").append(k).append(") = ").append(um.hasUserRestriction(k)).append('\n');
+        }
+        for (String f : new String[]{"/data/system/users/0.xml", "/data/system/users/userlist.xml",
+                                     "/data/system/device_policies.xml"}) {
+            r.append("\n===== ").append(f).append('\n');
+            java.io.File file = new java.io.File(f);
+            r.append("exists=").append(file.exists()).append(" len=").append(file.length())
+             .append(" canRead=").append(file.canRead()).append('\n');
+            try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
+                byte[] b = new byte[(int) Math.max(0, Math.min(file.length(), 65536))];
+                int o = 0, n;
+                while (o < b.length && (n = in.read(b, o, b.length - o)) > 0) o += n;
+                r.append(new String(b, 0, o, "UTF-8")).append('\n');
+            } catch (Throwable e) { r.append("READ ERROR ").append(e).append('\n'); }
+        }
+        java.io.File out = new java.io.File("/sdcard/AndroidToolbox/user-state.log");
+        try {
+            out.getParentFile().mkdirs();
+            try (java.io.FileOutputStream o = new java.io.FileOutputStream(out)) {
+                o.write(r.toString().getBytes("UTF-8"));
+            }
+            log("wrote " + out + " (" + out.length() + " bytes)");
+        } catch (Throwable e) { log("write failed: " + e); }
+        log(r.toString());
+    }
+
+    @SuppressWarnings("deprecation")
+    private void showWifiRestriction() {
+        UserManager um = (UserManager) getSystemService(USER_SERVICE);
+        log("no_config_wifi = " + um.hasUserRestriction(NO_CONFIG_WIFI));
+        log("no_debugging_features = " + um.hasUserRestriction(NO_DEBUG));
+        log("all restrictions = " + um.getUserRestrictions());
+    }
+
+    @SuppressWarnings("deprecation")
+    private void setWifiRestriction(boolean on) {
+        UserManager um = (UserManager) getSystemService(USER_SERVICE);
+        try {
+            um.setUserRestriction(NO_CONFIG_WIFI, on);
+            log("set no_config_wifi=" + on + " -> now " + um.hasUserRestriction(NO_CONFIG_WIFI));
+        } catch (SecurityException e) {
+            log("DENIED setting no_config_wifi: " + e.getMessage() + " (needs MANAGE_USERS)");
+        }
     }
 
     @SuppressWarnings("deprecation")
